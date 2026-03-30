@@ -5,6 +5,7 @@ const controls = {
   panelBody: document.querySelector(".control-panel__body"),
   toggle: document.querySelector(".control-panel__toggle"),
   experience: document.querySelector("#experience"),
+  difficulty: document.querySelector("#difficulty"),
   mode: document.querySelector("#mode"),
   particleCount: document.querySelector("#particleCount"),
   speed: document.querySelector("#speed"),
@@ -17,6 +18,7 @@ const controls = {
 
 const gameUi = {
   mode: document.querySelector("[data-game-mode]"),
+  difficulty: document.querySelector("[data-game-difficulty]"),
   level: document.querySelector("[data-game-level]"),
   progress: document.querySelector("[data-game-progress]"),
   status: document.querySelector("[data-game-status]")
@@ -47,11 +49,13 @@ const target = {
   x: 0,
   y: 0,
   radius: 120,
-  pulse: 0
+  pulse: 0,
+  capturePulse: 0
 };
 
 const gameState = {
   experience: "levels",
+  difficulty: "normal",
   level: 1,
   capturedCount: 0,
   won: false,
@@ -63,6 +67,7 @@ const particles = [];
 
 const settings = {
   experience: "levels",
+  difficulty: "normal",
   mode: "aurora",
   particleCount: 240,
   maxSpeed: 0.78,
@@ -83,6 +88,7 @@ const settings = {
 };
 
 const defaultSettings = { ...settings };
+let audioContext;
 const modeDefaults = {
   aurora: {
     mode: "aurora",
@@ -307,14 +313,17 @@ class Particle {
 
       if (targetDistance + this.size <= captureThreshold) {
         this.captured = true;
-        this.captureGlow = 0.1;
-        this.vx *= 0.2;
-        this.vy *= 0.2;
+        triggerCaptureFeedback(this);
       }
     }
 
     this.vx *= 0.989 - this.depth * 0.002;
     this.vy *= 0.989 - this.depth * 0.002;
+
+    if (target.capturePulse > 0.08) {
+      this.vx *= 0.992;
+      this.vy *= 0.992;
+    }
 
     const speed = Math.hypot(this.vx, this.vy);
     const maxVelocity = 2.6 + this.depth * 1.8;
@@ -458,13 +467,16 @@ function placeTarget() {
 function updateGameUi() {
   const isFreePlay = gameState.experience === "freeplay";
   gameUi.mode.textContent = isFreePlay ? "Free Play" : "Levels";
+  gameUi.difficulty.textContent = isFreePlay ? "--" : capitalize(gameState.difficulty);
   gameUi.level.textContent = isFreePlay ? "--" : String(gameState.level);
   gameUi.progress.textContent = isFreePlay ? "Cruise" : `${Math.max(0, particles.length - gameState.capturedCount)} / ${particles.length}`;
   gameUi.status.textContent = isFreePlay
     ? "Cruise the field. Hold click to stir a smooth vortex and surf the flow."
     : gameState.won
       ? "Level Complete. The next target is forming..."
-      : "Guide every particle into the target ring.";
+      : gameState.difficulty === "hard"
+        ? "Hard Mode: no direct particle pull. Guide them patiently into the target."
+        : "Normal Mode: click assists can pull particles toward the target.";
 }
 
 function updateControlReadout(key, value) {
@@ -489,11 +501,17 @@ function updateControlReadout(key, value) {
     return;
   }
 
+  if (key === "difficulty") {
+    target.textContent = value;
+    return;
+  }
+
   target.textContent = Number(value).toFixed(2);
 }
 
 function syncControls() {
   controls.experience.value = gameState.experience;
+  controls.difficulty.value = gameState.difficulty;
   controls.mode.value = settings.mode;
   controls.particleCount.value = String(Math.round(settings.particleCount));
   controls.speed.value = String(settings.maxSpeed.toFixed(2));
@@ -501,6 +519,7 @@ function syncControls() {
   controls.trail.value = String(settings.trailAlpha.toFixed(2));
 
   updateControlReadout("experience", gameState.experience === "freeplay" ? "Free Play" : "Levels");
+  updateControlReadout("difficulty", capitalize(gameState.difficulty));
   updateControlReadout("mode", capitalize(settings.mode));
   updateControlReadout("particleCount", settings.particleCount);
   updateControlReadout("speed", settings.maxSpeed);
@@ -550,13 +569,17 @@ function applyDifficulty() {
   }
 
   const difficulty = Math.max(0, gameState.level - 1);
-  target.radius = Math.max(Math.min(width, height) * 0.055, Math.min(width, height) * (0.145 - difficulty * 0.008));
-  settings.pointerForce = Math.min(0.8, defaultSettings.pointerForce + difficulty * 0.018);
-  settings.orbitStrength = Math.min(0.36, defaultSettings.orbitStrength + difficulty * 0.008);
+  const hardBias = gameState.difficulty === "hard" ? 1 : 0;
+  target.radius = Math.max(
+    Math.min(width, height) * 0.05,
+    Math.min(width, height) * (0.145 - difficulty * 0.008 - hardBias * 0.012)
+  );
+  settings.pointerForce = Math.min(0.8, defaultSettings.pointerForce + difficulty * 0.018 - hardBias * 0.05);
+  settings.orbitStrength = Math.min(0.36, defaultSettings.orbitStrength + difficulty * 0.008 - hardBias * 0.03);
   settings.rippleStrength = Math.min(22, defaultSettings.rippleStrength + difficulty * 0.75);
   settings.flowStrength = Math.min(1.2, defaultSettings.flowStrength + difficulty * 0.04);
-  settings.maxSpeed = Math.min(1.7, defaultSettings.maxSpeed + difficulty * 0.035);
-  settings.drift = Math.min(0.05, defaultSettings.drift + difficulty * 0.0022);
+  settings.maxSpeed = Math.min(1.7, defaultSettings.maxSpeed + difficulty * 0.035 + hardBias * 0.06);
+  settings.drift = Math.min(0.05, defaultSettings.drift + difficulty * 0.0022 + hardBias * 0.002);
 }
 
 function setExperience(nextExperience) {
@@ -581,6 +604,76 @@ function setExperience(nextExperience) {
   gravityWell.releaseFlash = 0;
   syncControls();
   updateGameUi();
+}
+
+function setDifficulty(nextDifficulty) {
+  gameState.difficulty = nextDifficulty;
+  settings.difficulty = nextDifficulty;
+  ripples.length = 0;
+  gravityWell.active = false;
+  gravityWell.charge = 0;
+  gravityWell.releaseFlash = 0;
+  applyDifficulty();
+  updateGameUi();
+  syncControls();
+}
+
+function getAudioContext() {
+  if (!window.AudioContext && !window.webkitAudioContext) {
+    return null;
+  }
+
+  if (!audioContext) {
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    audioContext = new AudioCtor();
+  }
+
+  if (audioContext.state === "suspended") {
+    audioContext.resume().catch(() => {});
+  }
+
+  return audioContext;
+}
+
+function playCaptureSound(intensity) {
+  const ctx = getAudioContext();
+
+  if (!ctx) {
+    return;
+  }
+
+  const now = ctx.currentTime;
+  const gain = ctx.createGain();
+  const osc = ctx.createOscillator();
+  const mod = ctx.createOscillator();
+  const modGain = ctx.createGain();
+
+  osc.type = "sine";
+  mod.type = "triangle";
+  osc.frequency.setValueAtTime(520 + intensity * 90, now);
+  osc.frequency.exponentialRampToValueAtTime(760 + intensity * 120, now + 0.12);
+  mod.frequency.setValueAtTime(14, now);
+  modGain.gain.setValueAtTime(18, now);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.03 + intensity * 0.025, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+
+  mod.connect(modGain);
+  modGain.connect(osc.frequency);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  mod.start(now);
+  osc.stop(now + 0.2);
+  mod.stop(now + 0.2);
+}
+
+function triggerCaptureFeedback(particle) {
+  target.capturePulse = Math.min(1.4, target.capturePulse + 0.45);
+  particle.captureGlow = 0.2;
+  particle.vx *= 0.08;
+  particle.vy *= 0.08;
+  playCaptureSound(0.4 + particle.depth * 0.2);
 }
 
 function applyRandomize() {
@@ -619,6 +712,7 @@ function applyRandomize() {
 function applyReset() {
   Object.assign(settings, defaultSettings);
   gameState.experience = defaultSettings.experience;
+  gameState.difficulty = defaultSettings.difficulty;
   applyMode(defaultSettings.mode, true);
 
   for (const particle of particles) {
@@ -631,7 +725,7 @@ function applyReset() {
   gravityWell.releaseFlash = 0;
   gravityWell.radius = 0;
   gameState.level = 1;
-  gameState.herdedCount = 0;
+  gameState.capturedCount = 0;
   gameState.won = false;
   gameState.winTimer = 0;
   placeTarget();
@@ -705,12 +799,14 @@ function drawPointerAura(time) {
 
 function drawTarget(time) {
   const pulse = 1 + Math.sin(time * 0.003 + target.pulse) * 0.06;
+  target.capturePulse *= 0.9;
   const outerRadius = target.radius * 1.18 * pulse;
   const innerRadius = target.radius * 0.66;
   const hue = (settings.paletteBase + 120 + Math.sin(time * 0.0012) * 20 + 360) % 360;
-  const glow = context.createRadialGradient(target.x, target.y, innerRadius * 0.2, target.x, target.y, outerRadius * 1.3);
-  glow.addColorStop(0, `hsla(${hue}, 100%, 74%, 0.18)`);
-  glow.addColorStop(0.45, `hsla(${(hue + 60) % 360}, 100%, 66%, 0.08)`);
+  const flashRadius = outerRadius * (1 + target.capturePulse * 0.35);
+  const glow = context.createRadialGradient(target.x, target.y, innerRadius * 0.2, target.x, target.y, flashRadius * 1.3);
+  glow.addColorStop(0, `hsla(${hue}, 100%, 74%, ${0.18 + target.capturePulse * 0.1})`);
+  glow.addColorStop(0.45, `hsla(${(hue + 60) % 360}, 100%, 66%, ${0.08 + target.capturePulse * 0.08})`);
   glow.addColorStop(1, "rgba(0, 0, 0, 0)");
 
   context.beginPath();
@@ -719,11 +815,11 @@ function drawTarget(time) {
   context.fill();
 
   context.beginPath();
-  context.lineWidth = 3;
+  context.lineWidth = 3 + target.capturePulse * 1.4;
   context.strokeStyle = `hsla(${hue}, 100%, 78%, 0.92)`;
-  context.shadowBlur = 24;
+  context.shadowBlur = 24 + target.capturePulse * 16;
   context.shadowColor = `hsla(${hue}, 100%, 72%, 0.7)`;
-  context.arc(target.x, target.y, outerRadius, 0, Math.PI * 2);
+  context.arc(target.x, target.y, flashRadius, 0, Math.PI * 2);
   context.stroke();
 
   context.beginPath();
@@ -920,6 +1016,7 @@ function createRipple(x, y) {
   const targetDx = target.x - x;
   const targetDy = target.y - y;
   const nearTarget = gameState.experience === "levels" && Math.hypot(targetDx, targetDy) < target.radius * 2.4;
+  const directAssist = gameState.experience === "levels" && gameState.difficulty === "normal";
 
   ripples.push({
     x,
@@ -952,6 +1049,15 @@ function createRipple(x, y) {
       particle.vy += (dy / distance) * pull;
       particle.vx *= 0.96;
       particle.vy *= 0.96;
+    } else if (directAssist) {
+      const dx = x - particle.x;
+      const dy = y - particle.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      const pull = Math.max(0, 1 - distance / (Math.min(width, height) * 0.38)) * (1.2 + particle.depth * 0.55);
+      particle.vx += (dx / distance) * pull;
+      particle.vy += (dy / distance) * pull;
+      particle.vx *= 0.97;
+      particle.vy *= 0.97;
     } else {
       particle.vx += Math.cos(angle) * power;
       particle.vy += Math.sin(angle) * power;
@@ -1022,6 +1128,10 @@ controls.trail.addEventListener("input", (event) => {
 
 controls.experience.addEventListener("change", (event) => {
   setExperience(event.target.value);
+});
+
+controls.difficulty.addEventListener("change", (event) => {
+  setDifficulty(event.target.value);
 });
 
 controls.mode.addEventListener("change", (event) => {

@@ -27,6 +27,10 @@
       <strong data-game-mode>Levels</strong>
     </div>
     <div class="game-panel__row">
+      <span>Difficulty</span>
+      <strong data-game-difficulty>Normal</strong>
+    </div>
+    <div class="game-panel__row">
       <span>Level</span>
       <strong data-game-level>1</strong>
     </div>
@@ -53,6 +57,15 @@
         <select id="experience" name="experience" class="control__select">
           <option value="freeplay">Free Play</option>
           <option value="levels">Levels</option>
+        </select>
+      </label>
+
+      <label class="control">
+        <span class="control__label">Level Difficulty</span>
+        <span class="control__value control__value--text" data-value-for="difficulty">Normal</span>
+        <select id="difficulty" name="difficulty" class="control__select">
+          <option value="normal">Normal</option>
+          <option value="hard">Hard</option>
         </select>
       </label>
 
