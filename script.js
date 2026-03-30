@@ -30,7 +30,8 @@ const pointer = {
   vx: 0,
   vy: 0,
   active: false,
-  isDown: false
+  isDown: false,
+  sensitivity: 1
 };
 
 const gravityWell = {
@@ -52,7 +53,7 @@ const target = {
 const gameState = {
   experience: "levels",
   level: 1,
-  herdedCount: 0,
+  capturedCount: 0,
   won: false,
   winTimer: 0
 };
@@ -166,6 +167,7 @@ let height = 0;
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
 let animationFrame = 0;
 let particleTarget = settings.particleCount;
+let isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
 
 class Particle {
   constructor() {
@@ -186,6 +188,8 @@ class Particle {
     this.lightness = 42 + this.depth * 11 + Math.random() * 8 - settings.voidBias * 10;
     this.orbitDirection = Math.random() > 0.5 ? 1 : -1;
     this.twinkleOffset = Math.random() * Math.PI * 2;
+    this.captured = false;
+    this.captureGlow = 0;
 
     if (!initial) {
       this.vx *= 0.3;
@@ -194,6 +198,33 @@ class Particle {
   }
 
   update(time) {
+    if (this.captured) {
+      this.captureGlow = Math.min(1, this.captureGlow + 0.08);
+      const dx = target.x - this.x;
+      const dy = target.y - this.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      const settle = 0.14 + this.depth * 0.04;
+      this.vx += (dx / distance) * settle;
+      this.vy += (dy / distance) * settle;
+      this.vx *= 0.84;
+      this.vy *= 0.84;
+      this.x += this.vx;
+      this.y += this.vy;
+
+      const maxRadius = Math.max(8, target.radius - this.baseSize * 1.5);
+      const centerDistance = Math.hypot(this.x - target.x, this.y - target.y) || 1;
+
+      if (centerDistance > maxRadius) {
+        this.x = target.x + ((this.x - target.x) / centerDistance) * maxRadius;
+        this.y = target.y + ((this.y - target.y) / centerDistance) * maxRadius;
+        this.vx *= 0.2;
+        this.vy *= 0.2;
+      }
+
+      this.size = this.baseSize * 0.78;
+      return;
+    }
+
     const angle = time * 0.001 + this.twinkleOffset;
     const swirl = time * 0.00012 + this.twinkleOffset;
     const depthFactor = 0.65 + this.depth * 0.55;
@@ -222,8 +253,8 @@ class Particle {
         this.vy += (dy / distance) * pullForce * 0.22;
         this.vx += tangentX * orbitForce;
         this.vy += tangentY * orbitForce;
-        this.vx += pointer.vx * 0.0028 * proximity;
-        this.vy += pointer.vy * 0.0028 * proximity;
+        this.vx += pointer.vx * 0.0028 * proximity * pointer.sensitivity;
+        this.vy += pointer.vy * 0.0028 * proximity * pointer.sensitivity;
       }
     }
 
@@ -271,6 +302,15 @@ class Particle {
       this.vy += (targetDy / targetDistance) * settle;
       this.vx *= 0.975;
       this.vy *= 0.975;
+
+      const captureThreshold = Math.max(10, target.radius - this.size * 1.35);
+
+      if (targetDistance + this.size <= captureThreshold) {
+        this.captured = true;
+        this.captureGlow = 0.1;
+        this.vx *= 0.2;
+        this.vy *= 0.2;
+      }
     }
 
     this.vx *= 0.989 - this.depth * 0.002;
@@ -315,6 +355,20 @@ class Particle {
     context.fillStyle = withAlpha(color, 0.98);
     context.arc(this.x, this.y, this.size, 0, Math.PI * 2);
     context.fill();
+
+    if (this.captured) {
+      const captureRadius = this.size * (5 + this.captureGlow * 5);
+      const captureGradient = context.createRadialGradient(this.x, this.y, 0, this.x, this.y, captureRadius);
+      captureGradient.addColorStop(0, withAlpha(color, 0.65));
+      captureGradient.addColorStop(0.45, withAlpha(color, 0.18));
+      captureGradient.addColorStop(1, withAlpha(color, 0));
+
+      context.beginPath();
+      context.fillStyle = captureGradient;
+      context.arc(this.x, this.y, captureRadius, 0, Math.PI * 2);
+      context.fill();
+      return;
+    }
 
     const streakX = this.x - this.vx * (12 + this.depth * 6) * settings.streakBoost;
     const streakY = this.y - this.vy * (12 + this.depth * 6) * settings.streakBoost;
@@ -363,7 +417,7 @@ function withAlpha(color, alpha) {
 function resize() {
   width = window.innerWidth;
   height = window.innerHeight;
-  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  dpr = Math.min(window.devicePixelRatio || 1, isCoarsePointer ? 1.5 : 2);
   particleTarget = clampParticleCount(settings.particleCount);
 
   canvas.width = Math.floor(width * dpr);
@@ -384,7 +438,9 @@ function resize() {
 }
 
 function clampParticleCount(value) {
-  const screenCap = Math.min(360, Math.max(140, Math.floor((width * height) / 5200)));
+  const areaFactor = isCoarsePointer ? 7000 : 5200;
+  const hardCap = isCoarsePointer ? 280 : 360;
+  const screenCap = Math.min(hardCap, Math.max(110, Math.floor((width * height) / areaFactor)));
   return Math.min(screenCap, Math.round(value));
 }
 
@@ -403,11 +459,11 @@ function updateGameUi() {
   const isFreePlay = gameState.experience === "freeplay";
   gameUi.mode.textContent = isFreePlay ? "Free Play" : "Levels";
   gameUi.level.textContent = isFreePlay ? "--" : String(gameState.level);
-  gameUi.progress.textContent = isFreePlay ? "Cruise" : `${gameState.herdedCount} / ${particles.length}`;
+  gameUi.progress.textContent = isFreePlay ? "Cruise" : `${Math.max(0, particles.length - gameState.capturedCount)} / ${particles.length}`;
   gameUi.status.textContent = isFreePlay
     ? "Cruise the field. Hold click to stir a smooth vortex and surf the flow."
     : gameState.won
-      ? "Level cleared. The next target is forming..."
+      ? "Level Complete. The next target is forming..."
       : "Guide every particle into the target ring.";
 }
 
@@ -475,7 +531,7 @@ function applyMode(modeName, skipSync = false) {
   }
 
   placeTarget();
-  gameState.herdedCount = 0;
+  gameState.capturedCount = 0;
   gameState.won = false;
   gameState.winTimer = 0;
 
@@ -507,7 +563,7 @@ function setExperience(nextExperience) {
   gameState.experience = nextExperience;
   settings.experience = nextExperience;
   gameState.level = 1;
-  gameState.herdedCount = 0;
+  gameState.capturedCount = 0;
   gameState.won = false;
   gameState.winTimer = 0;
   Object.assign(settings, modeDefaults[settings.mode]);
@@ -741,31 +797,26 @@ function updateRipples() {
 
 function updateGameState() {
   if (gameState.experience === "freeplay") {
-    gameState.herdedCount = 0;
+    gameState.capturedCount = 0;
     gameState.won = false;
     gameState.winTimer = 0;
     updateGameUi();
     return;
   }
 
-  let herded = 0;
-  const winRadius = target.radius * 1.04;
+  let captured = 0;
 
   for (const particle of particles) {
-    const dx = particle.x - target.x;
-    const dy = particle.y - target.y;
-    const distance = Math.hypot(dx, dy);
-
-    if (distance < winRadius) {
-      herded += 1;
+    if (particle.captured) {
+      captured += 1;
     }
   }
 
-  gameState.herdedCount = herded;
+  gameState.capturedCount = captured;
 
-  if (!gameState.won && herded === particles.length && particles.length > 0) {
+  if (!gameState.won && captured === particles.length && particles.length > 0) {
     gameState.won = true;
-    gameState.winTimer = 90;
+    gameState.winTimer = 105;
     ripples.push({
       x: target.x,
       y: target.y,
@@ -859,8 +910,9 @@ function updatePointerPosition(event) {
   pointer.previousY = pointer.y;
   pointer.x = event.clientX;
   pointer.y = event.clientY;
-  pointer.vx = pointer.x - pointer.previousX;
-  pointer.vy = pointer.y - pointer.previousY;
+  pointer.sensitivity = event.pointerType === "touch" ? 1.85 : 1;
+  pointer.vx = (pointer.x - pointer.previousX) * pointer.sensitivity;
+  pointer.vy = (pointer.y - pointer.previousY) * pointer.sensitivity;
   pointer.active = true;
 }
 
@@ -884,6 +936,10 @@ function createRipple(x, y) {
 
   for (let burst = 0; burst < 58; burst += 1) {
     const particle = particles[(Math.random() * particles.length) | 0];
+    if (particle.captured) {
+      continue;
+    }
+
     const angle = (Math.PI * 2 * burst) / 58;
     const power = (2.4 + Math.random() * 3.2) * (0.75 + particle.depth * 0.4);
 
@@ -916,6 +972,10 @@ function releaseGravityWell() {
 
   for (let burst = 0; burst < particles.length; burst += 1) {
     const particle = particles[burst];
+    if (particle.captured) {
+      continue;
+    }
+
     const dx = particle.x - gravityWell.x;
     const dy = particle.y - gravityWell.y;
     const distance = Math.hypot(dx, dy) || 1;
