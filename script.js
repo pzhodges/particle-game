@@ -24,6 +24,10 @@ const gameUi = {
   status: document.querySelector("[data-game-status]")
 };
 
+const hud = {
+  description: document.querySelector("[data-hud-description]")
+};
+
 const pointer = {
   x: 0,
   y: 0,
@@ -35,6 +39,8 @@ const pointer = {
   isDown: false,
   sensitivity: 1
 };
+
+const pointerTrail = [];
 
 const gravityWell = {
   active: false,
@@ -59,7 +65,8 @@ const gameState = {
   level: 1,
   capturedCount: 0,
   won: false,
-  winTimer: 0
+  winTimer: 0,
+  hintTimer: 0
 };
 
 const ripples = [];
@@ -472,11 +479,21 @@ function updateGameUi() {
   gameUi.progress.textContent = isFreePlay ? "Cruise" : `${Math.max(0, particles.length - gameState.capturedCount)} / ${particles.length}`;
   gameUi.status.textContent = isFreePlay
     ? "Cruise the field. Hold click to stir a smooth vortex and surf the flow."
+    : gameState.hintTimer > 0
+      ? "No clicks. Control with movement only."
     : gameState.won
       ? "Level Complete. The next target is forming..."
       : gameState.difficulty === "hard"
-        ? "Hard Mode: no direct particle pull. Guide them patiently into the target."
+        ? "Hard Mode: Movement Only"
         : "Normal Mode: click assists can pull particles toward the target.";
+
+  if (hud.description) {
+    hud.description.textContent = isFreePlay
+      ? "Cruise through the neon field. Hold click or press and hold to stir a spinning gravity vortex, then release to send a flowing pulse through the swarm."
+      : gameState.difficulty === "hard"
+        ? "Guide the swarm into the target using movement alone. No clicks. No taps. Just smooth cursor or finger motion shaping the flow."
+        : "Guide the particles into the target well. Hold click or press and hold to create a spinning gravity vortex, then release to fling the field forward.";
+  }
 }
 
 function updateControlReadout(key, value) {
@@ -609,6 +626,7 @@ function setExperience(nextExperience) {
 function setDifficulty(nextDifficulty) {
   gameState.difficulty = nextDifficulty;
   settings.difficulty = nextDifficulty;
+  gameState.hintTimer = nextDifficulty === "hard" ? 180 : 0;
   ripples.length = 0;
   gravityWell.active = false;
   gravityWell.charge = 0;
@@ -616,6 +634,14 @@ function setDifficulty(nextDifficulty) {
   applyDifficulty();
   updateGameUi();
   syncControls();
+}
+
+function isHardMovementOnly() {
+  return gameState.experience === "levels" && gameState.difficulty === "hard";
+}
+
+function isUiTarget(node) {
+  return node instanceof Element && Boolean(node.closest(".control-panel, .game-panel"));
 }
 
 function getAudioContext() {
@@ -795,6 +821,50 @@ function drawPointerAura(time) {
   context.fillStyle = aura;
   context.arc(pointer.x, pointer.y, radius, 0, Math.PI * 2);
   context.fill();
+}
+
+function updatePointerTrail() {
+  if (!pointer.active || !isHardMovementOnly()) {
+    pointerTrail.length = 0;
+    return;
+  }
+
+  pointerTrail.unshift({
+    x: pointer.x,
+    y: pointer.y,
+    life: 1
+  });
+
+  if (pointerTrail.length > 18) {
+    pointerTrail.length = 18;
+  }
+
+  for (let index = pointerTrail.length - 1; index >= 0; index -= 1) {
+    pointerTrail[index].life *= 0.88;
+
+    if (pointerTrail[index].life < 0.06) {
+      pointerTrail.splice(index, 1);
+    }
+  }
+}
+
+function drawPointerTrail() {
+  if (!isHardMovementOnly() || pointerTrail.length < 2) {
+    return;
+  }
+
+  for (let index = 0; index < pointerTrail.length - 1; index += 1) {
+    const current = pointerTrail[index];
+    const next = pointerTrail[index + 1];
+    const alpha = current.life * 0.22;
+
+    context.beginPath();
+    context.strokeStyle = `rgba(160, 244, 255, ${alpha})`;
+    context.lineWidth = 1 + current.life * 6;
+    context.moveTo(current.x, current.y);
+    context.lineTo(next.x, next.y);
+    context.stroke();
+  }
 }
 
 function drawTarget(time) {
@@ -984,11 +1054,17 @@ function animate(time) {
   drawBackdrop(time);
   drawTarget(time);
   drawPointerAura(time);
+  updatePointerTrail();
+  drawPointerTrail();
   updateGravityWell();
   drawGravityWell(time);
   updateRipples();
   drawRipples(time);
   updateGameState();
+
+  if (gameState.hintTimer > 0) {
+    gameState.hintTimer -= 1;
+  }
 
   context.globalCompositeOperation = "lighter";
 
@@ -1157,6 +1233,15 @@ window.addEventListener("pointermove", (event) => {
 });
 
 window.addEventListener("pointerdown", (event) => {
+  if (isUiTarget(event.target)) {
+    return;
+  }
+
+  if (isHardMovementOnly()) {
+    pointer.isDown = false;
+    return;
+  }
+
   updatePointerPosition(event);
   pointer.isDown = true;
   gravityWell.active = true;
@@ -1166,13 +1251,29 @@ window.addEventListener("pointerdown", (event) => {
 });
 
 window.addEventListener("pointerup", (event) => {
+  if (isUiTarget(event.target)) {
+    return;
+  }
+
+  if (isHardMovementOnly()) {
+    pointer.isDown = false;
+    return;
+  }
+
   updatePointerPosition(event);
   pointer.isDown = false;
   releaseGravityWell();
 });
 
-window.addEventListener("pointercancel", () => {
+window.addEventListener("pointercancel", (event) => {
+  if (isUiTarget(event.target)) {
+    return;
+  }
+
   pointer.isDown = false;
+  if (isHardMovementOnly()) {
+    return;
+  }
   releaseGravityWell();
 });
 
