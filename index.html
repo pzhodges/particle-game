@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neon Particle Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <canvas class="particle-canvas" aria-hidden="true"></canvas>
+
+  <div class="hud">
+    <p class="eyebrow">Interactive Neon Field</p>
+    <h1>Move through the glow.</h1>
+    <p class="description">
+      Guide the particles into the target well. Hold click to create a spinning gravity vortex, then release to fling the field forward.
+    </p>
+  </div>
+
+  <section class="game-panel" aria-live="polite">
+    <p class="game-panel__eyebrow">Herding Run</p>
+    <div class="game-panel__row">
+      <span>Play Mode</span>
+      <strong data-game-mode>Levels</strong>
+    </div>
+    <div class="game-panel__row">
+      <span>Level</span>
+      <strong data-game-level>1</strong>
+    </div>
+    <div class="game-panel__row">
+      <span>Herded</span>
+      <strong data-game-progress>0 / 0</strong>
+    </div>
+    <p class="game-panel__status" data-game-status>Guide every particle into the target ring.</p>
+  </section>
+
+  <aside class="control-panel" aria-label="Particle controls">
+    <div class="control-panel__header">
+      <div>
+        <p class="control-panel__eyebrow">Live Controls</p>
+        <p class="control-panel__title">Particle Field</p>
+      </div>
+      <button class="control-panel__toggle" type="button" aria-expanded="true" aria-controls="controlPanelBody">Collapse</button>
+    </div>
+
+    <div class="control-panel__body" id="controlPanelBody">
+      <label class="control">
+        <span class="control__label">Experience</span>
+        <span class="control__value control__value--text" data-value-for="experience">Levels</span>
+        <select id="experience" name="experience" class="control__select">
+          <option value="freeplay">Free Play</option>
+          <option value="levels">Levels</option>
+        </select>
+      </label>
+
+      <label class="control">
+        <span class="control__label">Visual Mode</span>
+        <span class="control__value control__value--text" data-value-for="mode">Aurora</span>
+        <select id="mode" name="mode" class="control__select">
+          <option value="aurora">Aurora</option>
+          <option value="plasma">Plasma</option>
+          <option value="warp">Warp</option>
+          <option value="void">Void</option>
+        </select>
+      </label>
+
+      <label class="control">
+        <span class="control__label">Particle Count</span>
+        <span class="control__value" data-value-for="particleCount">240</span>
+        <input id="particleCount" name="particleCount" type="range" min="120" max="360" step="1" value="240">
+      </label>
+
+      <label class="control">
+        <span class="control__label">Speed</span>
+        <span class="control__value" data-value-for="speed">0.78</span>
+        <input id="speed" name="speed" type="range" min="0.2" max="1.6" step="0.01" value="0.78">
+      </label>
+
+      <label class="control">
+        <span class="control__label">Attraction Strength</span>
+        <span class="control__value" data-value-for="attraction">0.38</span>
+        <input id="attraction" name="attraction" type="range" min="0.05" max="0.9" step="0.01" value="0.38">
+      </label>
+
+      <label class="control">
+        <span class="control__label">Trail Length</span>
+        <span class="control__value" data-value-for="trail">0.10</span>
+        <input id="trail" name="trail" type="range" min="0.04" max="0.24" step="0.01" value="0.10">
+      </label>
+
+      <div class="control-panel__actions">
+        <button class="control-button control-button--primary randomize-button" type="button">Randomize</button>
+        <button class="control-button control-button--ghost reset-button" type="button">Reset</button>
+      </div>
+    </div>
+  </aside>
+
+  <script src="script.js"></script>
+</body>
+</html>
